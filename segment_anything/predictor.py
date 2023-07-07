@@ -97,6 +97,8 @@ class SamPredictor:
         mask_input: Optional[np.ndarray] = None,
         multimask_output: bool = True,
         return_logits: bool = False,
+        attn_sim = None,
+        target_embedding = None
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Predict masks for the given input prompts, using the currently set image.
@@ -158,6 +160,8 @@ class SamPredictor:
             mask_input_torch,
             multimask_output,
             return_logits=return_logits,
+            attn_sim=attn_sim,
+            target_embedding=target_embedding,
         )
 
         masks_np = masks[0].detach().cpu().numpy()
@@ -174,6 +178,8 @@ class SamPredictor:
         mask_input: Optional[torch.Tensor] = None,
         multimask_output: bool = True,
         return_logits: bool = False,
+        attn_sim = None,
+        target_embedding = None
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Predict masks for the given input prompts, using the currently set image.
@@ -232,6 +238,8 @@ class SamPredictor:
             sparse_prompt_embeddings=sparse_embeddings,
             dense_prompt_embeddings=dense_embeddings,
             multimask_output=multimask_output,
+            attn_sim=attn_sim,
+            target_embedding=target_embedding
         )
 
         # Upscale the masks to the original image resolution
