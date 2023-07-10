@@ -125,6 +125,7 @@ class PromptEncoder(nn.Module):
     def _get_device(self) -> torch.device:
         return self.point_embeddings[0].weight.device
 
+    # TODO: add image embedding vectors, CLIP embedding vectors
     def forward(
         self,
         points: Optional[Tuple[torch.Tensor, torch.Tensor]],
