@@ -91,6 +91,8 @@ class TwoWayTransformer(nn.Module):
 
         # Apply transformer blocks and final layernorm
         for layer in self.layers:
+            if target_embedding is not None:
+                queries += target_embedding
             queries, keys = layer(
                 queries=queries,
                 keys=keys,

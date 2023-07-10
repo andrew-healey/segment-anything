@@ -275,3 +275,9 @@ class SamPredictor:
         self.orig_w = None
         self.input_h = None
         self.input_w = None
+    
+    def preprocess_mask(self,mask:torch.Tensor) -> torch.Tensor:
+        input_mask = self.transform.apply_image(mask)
+        input_mask_torch = torch.as_tensor(input_mask, device=self.device)
+        input_mask_torch = input_mask_torch.permute(2, 0, 1).contiguous()[None, :, :, :]
+        return self.model.preprocess(input_mask_torch)  # pad to 1024
