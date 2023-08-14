@@ -30,6 +30,7 @@ class SamPredictor:
         self.model = sam_model
         self.transform = ResizeLongestSide(sam_model.image_encoder.img_size)
         self.reset_image()
+        self.img = None
 
     def set_image(
         self,
@@ -92,11 +93,15 @@ class SamPredictor:
         ), f"set_torch_image input must be BCHW with long side {self.model.image_encoder.img_size}."
         self.reset_image()
 
+        self.img = transformed_image
+
         self.original_size = original_image_size
         self.input_size = tuple(transformed_image.shape[-2:])
         input_image = self.model.preprocess(transformed_image)
         self.features = self.model.image_encoder(input_image)
         self.is_image_set = True
+
+        self.resized_img = input_image
 
     def predict(
         self,
@@ -270,8 +275,7 @@ class SamPredictor:
         # Upscale the masks to the original image resolution
         high_res_masks = self.model.postprocess_masks(low_res_masks, self.input_size, self.original_size)
 
-        if not return_logits:
-            masks = high_res_masks > self.model.mask_threshold  # 0.0
+        masks = high_res_masks > self.model.mask_threshold  # 0.0
 
         if high_res:
           return masks, iou_predictions, low_res_masks, high_res_masks

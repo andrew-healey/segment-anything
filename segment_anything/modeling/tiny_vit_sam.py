@@ -225,6 +225,7 @@ class Attention(torch.nn.Module):
         self.dh = int(attn_ratio * key_dim) * num_heads
         self.attn_ratio = attn_ratio
         h = self.dh + nh_kd * 2
+        self.h = h
 
         self.norm = nn.LayerNorm(dim)
         self.qkv = nn.Linear(dim, h)

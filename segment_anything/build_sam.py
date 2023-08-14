@@ -10,6 +10,7 @@ from functools import partial
 
 from .modeling import ImageEncoderViT, MaskDecoder, PromptEncoder, Sam, TwoWayTransformer, TinyViT
 
+strict = False
 
 def build_sam_vit_h(checkpoint=None):
     return _build_sam(
@@ -88,7 +89,7 @@ def build_sam_vit_t(checkpoint=None):
     if checkpoint is not None:
         with open(checkpoint, "rb") as f:
             state_dict = torch.load(f)
-        mobile_sam.load_state_dict(state_dict)
+        mobile_sam.load_state_dict(state_dict,strict=strict)
     return mobile_sam
 
 sam_model_registry = {
