@@ -31,6 +31,7 @@ from .utils.amg import (
     uncrop_points,
 )
 
+latest_masks = None
 
 class SamAutomaticMaskGenerator:
     def __init__(
@@ -283,6 +284,8 @@ class SamAutomaticMaskGenerator:
             return_logits=True,
         )
 
+        print("masks",masks.dtype)
+
         # Serialize predictions and store in MaskData
         data = MaskData(
             masks=masks.flatten(0, 1),
@@ -290,6 +293,9 @@ class SamAutomaticMaskGenerator:
             points=torch.as_tensor(points.repeat(masks.shape[1], axis=0)),
         )
         del masks
+
+        global latest_masks
+        latest_masks = data["masks"]
 
         # Filter by predicted IoU
         if self.pred_iou_thresh > 0.0:

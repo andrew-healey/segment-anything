@@ -77,6 +77,7 @@ class MaskDecoder(nn.Module):
         sparse_prompt_embeddings: torch.Tensor,
         dense_prompt_embeddings: torch.Tensor,
         multimask_output: bool,
+        context_embeddings: torch.Tensor,
         attn_sim=None,
         target_embedding=None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -100,6 +101,7 @@ class MaskDecoder(nn.Module):
             image_pe=image_pe,
             sparse_prompt_embeddings=sparse_prompt_embeddings,
             dense_prompt_embeddings=dense_prompt_embeddings,
+            context_embeddings=context_embeddings,
             attn_sim=attn_sim,
             target_embedding=target_embedding
         )
@@ -121,6 +123,7 @@ class MaskDecoder(nn.Module):
         image_pe: torch.Tensor,
         sparse_prompt_embeddings: torch.Tensor,
         dense_prompt_embeddings: torch.Tensor,
+        context_embeddings: torch.Tensor = None,
         attn_sim=None,
         target_embedding=None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -131,13 +134,28 @@ class MaskDecoder(nn.Module):
         tokens = torch.cat((output_tokens, sparse_prompt_embeddings), dim=1)
 
         # Expand per-image data in batch direction to be per-mask
+        assert len(image_embeddings.shape) == 3,f"image_embeddings.shape: {image_embeddings.shape}"
         src = torch.repeat_interleave(image_embeddings, tokens.shape[0], dim=0)
-        src = src + dense_prompt_embeddings
-        pos_src = torch.repeat_interleave(image_pe, tokens.shape[0], dim=0)
+        src = src + dense_prompt_embeddings # shape (b, c, h, w)
+        b,c,h,w = src.shape
+
+        pos_src = torch.repeat_interleave(image_pe, tokens.shape[0], dim=0) # shape (b, c, h, w)
         b, c, h, w = src.shape
 
+
+        if context_embeddings is None:
+            ctx_src = torch.zeros((b,0,c,h,w)).to(src.device)
+        else:
+            assert len(context_embeddings.shape) == 3,f"context_embeddings.shape: {context_embeddings.shape}"
+            n = context_embeddings.shape[0]
+            # repeat context_embeddings to have shape (b, n, c, h, w)
+            ctx_src = torch.repeat_interleave(context_embeddings, tokens.shape[0], dim=0)
+
+            # reshape pos_src to (b,c,(n+1)h,w)
+            pos_src = pos_src.view(b, c, h, w).repeat(1, 1, n+1, 1).view(b, c, (n+1)*h, w)
+
         # Run the transformer
-        hs, src = self.transformer(src, pos_src, tokens, attn_sim, target_embedding)
+        hs, src = self.transformer(src, pos_src, tokens, ctx_src, attn_sim, target_embedding)
         iou_token_out = hs[:, 0, :]
         mask_tokens_out = hs[:, 1 : (1 + self.num_mask_tokens), :]
 

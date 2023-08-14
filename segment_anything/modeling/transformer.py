@@ -64,6 +64,7 @@ class TwoWayTransformer(nn.Module):
         image_embedding: Tensor,
         image_pe: Tensor,
         point_embedding: Tensor,
+        context_embeddings: Tensor,
         attn_sim: Tensor,
         target_embedding=None
     ) -> Tuple[Tensor, Tensor]:
@@ -75,6 +76,8 @@ class TwoWayTransformer(nn.Module):
             have the same shape as image_embedding.
           point_embedding (torch.Tensor): the embedding to add to the query points.
             Must have shape B x N_points x embedding_dim for any N_points.
+          context_embedding (torch.Tensor): context images to attend to. Should be shape
+            B x n x embedding_dim x h x w for any h and w.
 
         Returns:
           torch.Tensor: the processed point_embedding
@@ -84,6 +87,9 @@ class TwoWayTransformer(nn.Module):
         bs, c, h, w = image_embedding.shape
         image_embedding = image_embedding.flatten(2).permute(0, 2, 1)
         image_pe = image_pe.flatten(2).permute(0, 2, 1)
+        # BxNxHxWxC -> BxHWNxC == Bxcontext_tokensxC
+        context_embeddings = context_embeddings.permute(0, 1, 3, 4, 2).flatten(1, 3)
+        assert len(context_embeddings.shape) == 3,f"context_embeddings.shape: {context_embeddings.shape}, image_embedding.shape: {image_embedding.shape}"
 
         # Prepare queries
         queries = point_embedding
