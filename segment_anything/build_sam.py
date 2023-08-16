@@ -44,7 +44,7 @@ def build_sam_vit_b(checkpoint=None):
         checkpoint=checkpoint,
     )
 
-def build_sam_vit_t(checkpoint=None):
+def build_sam_vit_t(checkpoint=None,num_classes=0):
     prompt_embed_dim = 256
     image_size = 1024
     vit_patch_size = 16
@@ -80,6 +80,7 @@ def build_sam_vit_t(checkpoint=None):
                 transformer_dim=prompt_embed_dim,
                 iou_head_depth=3,
                 iou_head_hidden_dim=256,
+                num_classes=num_classes,
             ),
             pixel_mean=[123.675, 116.28, 103.53],
             pixel_std=[58.395, 57.12, 57.375],
