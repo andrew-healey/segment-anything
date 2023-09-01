@@ -23,7 +23,7 @@ class MaskDecoder(nn.Module):
         activation: Type[nn.Module] = nn.GELU,
         iou_head_depth: int = 3,
         iou_head_hidden_dim: int = 256,
-        num_classes: int = 0
+
     ) -> None:
         """
         Predicts masks given an image and prompt embeddings, using a
@@ -42,17 +42,20 @@ class MaskDecoder(nn.Module):
             used to predict mask quality
         """
         super().__init__()
+
         self.transformer_dim = transformer_dim
         self.transformer = transformer
+        self.iou_head_depth  = iou_head_depth
+        self.iou_head_hidden_dim = iou_head_hidden_dim
+
+        self.cls_token = False
 
         self.num_multimask_outputs = num_multimask_outputs
+        self.num_mask_tokens = num_multimask_outputs + 1
 
         self.iou_token = nn.Embedding(1, transformer_dim)
-        self.num_mask_tokens = num_multimask_outputs + 1
-        self.mask_tokens = nn.Embedding(self.num_mask_tokens, transformer_dim)
 
-        self.class_tokens = nn.Embedding(self.num_mask_tokens, transformer_dim)
-        self.num_classes = num_classes
+        self.mask_tokens = nn.Embedding(self.num_mask_tokens, transformer_dim)
 
         self.output_upscaling = nn.Sequential(
             nn.ConvTranspose2d(transformer_dim, transformer_dim // 4, kernel_size=2, stride=2),
@@ -72,10 +75,19 @@ class MaskDecoder(nn.Module):
             transformer_dim, iou_head_hidden_dim, self.num_mask_tokens, iou_head_depth
         )
 
-        # TODO: add custom heads, maybe?
-        # i.e. class prediction head
-        self.class_prediction_head = MLP(
-            transformer_dim, iou_head_hidden_dim, num_classes, iou_head_depth
+    def add_cls_token(self, num_classes: int):
+        self.cls_token = True
+        self.num_classes = num_classes
+        self.cls_iou_token = nn.Embedding(1, self.transformer_dim)
+        self.cls_mask_tokens = nn.Embedding(self.num_classes, self.transformer_dim)
+        self.cls_hypernetworks_mlps = nn.ModuleList(
+            [
+                MLP(self.transformer_dim, self.transformer_dim, self.transformer_dim // 8, 3)
+                for i in range(self.num_classes)
+            ]
+        )
+        self.cls_iou_prediction_head = MLP(
+            self.transformer_dim, self.iou_head_hidden_dim, self.num_classes, self.iou_head_depth
         )
 
     def forward(
@@ -85,7 +97,7 @@ class MaskDecoder(nn.Module):
         sparse_prompt_embeddings: torch.Tensor,
         dense_prompt_embeddings: torch.Tensor,
         multimask_output: bool,
-        context_embeddings: torch.Tensor,
+        context_embeddings: torch.Tensor=None,
         attn_sim=None,
         target_embedding=None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -103,8 +115,10 @@ class MaskDecoder(nn.Module):
         Returns:
           torch.Tensor: batched predicted masks
           torch.Tensor: batched predictions of mask quality
+          torch.Tensor: batched predicted masks for each class
+          torch.Tensor: batched predictions of mask quality for each class
         """
-        masks, iou_pred, cls_pred_logits = self.predict_masks(
+        masks, iou_pred, cls_masks,cls_iou_pred = self.predict_masks(
             image_embeddings=image_embeddings,
             image_pe=image_pe,
             sparse_prompt_embeddings=sparse_prompt_embeddings,
@@ -121,13 +135,9 @@ class MaskDecoder(nn.Module):
             mask_slice = slice(0, 1)
         masks = masks[:, mask_slice, :, :]
         iou_pred = iou_pred[:, mask_slice]
-        cls_pred_logits = cls_pred_logits[:,mask_slice]
-
-        B,M = masks.shape[:2]
-        assert cls_pred_logits.shape == (B, M, self.num_classes), f"cls_pred_logits.shape: {cls_pred_logits.shape}"
 
         # Prepare output
-        return masks, iou_pred, cls_pred_logits
+        return masks, iou_pred, cls_masks, cls_iou_pred
 
     def predict_masks(
         self,
@@ -141,12 +151,16 @@ class MaskDecoder(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Predicts masks. See 'forward' for more details."""
         # Concatenate output tokens
-        output_tokens = torch.cat([self.iou_token.weight, self.mask_tokens.weight, self.class_tokens.weight], dim=0)
+        to_cat = [self.iou_token.weight, self.mask_tokens.weight]
+        if self.cls_token:
+            to_cat.append(self.cls_iou_token.weight)
+            to_cat.append(self.cls_mask_tokens.weight)
+        output_tokens = torch.cat(to_cat, dim=0)
         output_tokens = output_tokens.unsqueeze(0).expand(sparse_prompt_embeddings.size(0), -1, -1)
         tokens = torch.cat((output_tokens, sparse_prompt_embeddings), dim=1)
 
         # Expand per-image data in batch direction to be per-mask
-        assert len(image_embeddings.shape) == 3,f"image_embeddings.shape: {image_embeddings.shape}"
+        # assert len(image_embeddings.shape) == 3,f"image_embeddings.shape: {image_embeddings.shape}, len(image_embeddings.shape): {len(image_embeddings.shape)}"
         src = torch.repeat_interleave(image_embeddings, tokens.shape[0], dim=0)
         src = src + dense_prompt_embeddings # shape (b, c, h, w)
         b,c,h,w = src.shape
@@ -170,7 +184,13 @@ class MaskDecoder(nn.Module):
         hs, src = self.transformer(src, pos_src, tokens, ctx_src, attn_sim, target_embedding)
         iou_token_out = hs[:, 0, :]
         mask_tokens_out = hs[:, 1 : (1 + self.num_mask_tokens), :]
-        class_tokens_out = hs[:, (1 + self.num_mask_tokens):(1 + 2*self.num_mask_tokens), :]
+
+        if self.cls_token:
+            cls_iou_token_out = hs[:, self.num_mask_tokens, :]
+            cls_mask_tokens_out = hs[:, (self.num_mask_tokens + 1):, :]
+        else:
+            cls_iou_token_out = None
+            cls_mask_tokens_out = None
 
         # Upscale mask embeddings and predict masks using the mask tokens
         src = src.transpose(1, 2).view(b, c, h, w)
@@ -182,11 +202,26 @@ class MaskDecoder(nn.Module):
         b, c, h, w = upscaled_embedding.shape
         masks = (hyper_in @ upscaled_embedding.view(b, c, h * w)).view(b, -1, h, w)
 
+        same_hypers = False # let custom cls tokens use the default hypernet MLP?
+        if self.cls_token:
+            cls_hyper_in_list: List[torch.Tensor] = []
+            for i in range(self.num_classes):
+                which_mlp = self.output_hypernetworks_mlps[0] if same_hypers else self.cls_hypernetworks_mlps[i]
+                cls_hyper_in_list.append(which_mlp(cls_mask_tokens_out[:, i, :]))
+            cls_hyper_in = torch.stack(cls_hyper_in_list, dim=1)
+            cls_masks = (cls_hyper_in @ upscaled_embedding.view(b, c, h * w)).view(b, -1, h, w)
+        else:
+            cls_masks = None
+
+
         # Generate mask quality predictions
         iou_pred = self.iou_prediction_head(iou_token_out)
-        cls_pred_logits = self.class_prediction_head(class_tokens_out)
+        if self.cls_token:
+            cls_iou_pred = self.cls_iou_prediction_head(cls_iou_token_out)
+        else:
+            cls_iou_pred = None
 
-        return masks, iou_pred, cls_pred_logits
+        return masks,iou_pred, cls_masks,cls_iou_pred
 
 
 # Lightly adapted from

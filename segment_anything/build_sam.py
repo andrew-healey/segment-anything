@@ -12,39 +12,45 @@ from .modeling import ImageEncoderViT, MaskDecoder, PromptEncoder, Sam, TwoWayTr
 
 strict = False
 
-def build_sam_vit_h(checkpoint=None):
+def build_sam_vit_h(checkpoint=None,*args, **kwargs):
     return _build_sam(
         encoder_embed_dim=1280,
         encoder_depth=32,
         encoder_num_heads=16,
         encoder_global_attn_indexes=[7, 15, 23, 31],
         checkpoint=checkpoint,
+        *args,
+        **kwargs,
     )
 
 
 build_sam = build_sam_vit_h
 
 
-def build_sam_vit_l(checkpoint=None):
+def build_sam_vit_l(checkpoint=None,*args, **kwargs):
     return _build_sam(
         encoder_embed_dim=1024,
         encoder_depth=24,
         encoder_num_heads=16,
         encoder_global_attn_indexes=[5, 11, 17, 23],
         checkpoint=checkpoint,
+        *args,
+        **kwargs,
     )
 
 
-def build_sam_vit_b(checkpoint=None):
+def build_sam_vit_b(checkpoint=None,*args, **kwargs):
     return _build_sam(
         encoder_embed_dim=768,
         encoder_depth=12,
         encoder_num_heads=12,
         encoder_global_attn_indexes=[2, 5, 8, 11],
         checkpoint=checkpoint,
+        *args,
+        **kwargs,
     )
 
-def build_sam_vit_t(checkpoint=None,num_classes=0):
+def build_sam_vit_t(checkpoint=None,*args, **kwargs):
     prompt_embed_dim = 256
     image_size = 1024
     vit_patch_size = 16
@@ -80,7 +86,8 @@ def build_sam_vit_t(checkpoint=None,num_classes=0):
                 transformer_dim=prompt_embed_dim,
                 iou_head_depth=3,
                 iou_head_hidden_dim=256,
-                num_classes=num_classes,
+                *args,
+                **kwargs,
             ),
             pixel_mean=[123.675, 116.28, 103.53],
             pixel_std=[58.395, 57.12, 57.375],
@@ -108,6 +115,8 @@ def _build_sam(
     encoder_num_heads,
     encoder_global_attn_indexes,
     checkpoint=None,
+    *args,
+    **kwargs,
 ):
     prompt_embed_dim = 256
     image_size = 1024
@@ -145,6 +154,8 @@ def _build_sam(
             transformer_dim=prompt_embed_dim,
             iou_head_depth=3,
             iou_head_hidden_dim=256,
+            *args,
+            **kwargs,
         ),
         pixel_mean=[123.675, 116.28, 103.53],
         pixel_std=[58.395, 57.12, 57.375],
@@ -153,5 +164,5 @@ def _build_sam(
     if checkpoint is not None:
         with open(checkpoint, "rb") as f:
             state_dict = torch.load(f)
-        sam.load_state_dict(state_dict)
+        sam.load_state_dict(state_dict,strict=strict)
     return sam

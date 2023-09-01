@@ -161,6 +161,7 @@ def calculate_stability_score(
     score is the IoU between the binary masks obtained by thresholding
     the predicted mask logits at high and low values.
     """
+    # print("mask_threshold: ", mask_threshold, "threshold_offset: ", threshold_offset)
     # One mask is always contained inside the other.
     # Save memory by preventing unnecessary cast to torch.int64
     intersections = (

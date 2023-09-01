@@ -277,20 +277,21 @@ class SamAutomaticMaskGenerator:
         transformed_points = self.predictor.transform.apply_coords(points, im_size)
         in_points = torch.as_tensor(transformed_points, device=self.predictor.device)
         in_labels = torch.ones(in_points.shape[0], dtype=torch.int, device=in_points.device)
-        masks, iou_preds, _ = self.predictor.predict_torch(
+        masks, iou_preds, _, cls_masks,cls_iou_preds,_ = self.predictor.predict_torch(
             in_points[:, None, :],
             in_labels[:, None],
             multimask_output=True,
             return_logits=True,
+            high_res=True
         )
 
-        print("masks",masks.dtype)
+        # print("cls_iou_preds",cls_iou_preds)
 
         # Serialize predictions and store in MaskData
         data = MaskData(
-            masks=masks.flatten(0, 1),
-            iou_preds=iou_preds.flatten(0, 1),
-            points=torch.as_tensor(points.repeat(masks.shape[1], axis=0)),
+            masks=cls_masks.flatten(0, 1),
+            iou_preds=cls_iou_preds.flatten(0, 1),
+            points=torch.as_tensor(points.repeat(cls_masks.shape[1], axis=0)),
         )
         del masks
 
@@ -298,7 +299,8 @@ class SamAutomaticMaskGenerator:
         latest_masks = data["masks"]
 
         # Filter by predicted IoU
-        if self.pred_iou_thresh > 0.0:
+        if True:
+            print("iou_preds",data["iou_preds"].max())
             keep_mask = data["iou_preds"] > self.pred_iou_thresh
             data.filter(keep_mask)
 
@@ -306,10 +308,12 @@ class SamAutomaticMaskGenerator:
         data["stability_score"] = calculate_stability_score(
             data["masks"], self.predictor.model.mask_threshold, self.stability_score_offset
         )
+        # print("stability_score",data["stability_score"])
         if self.stability_score_thresh > 0.0:
+            # keep_mask = data["iou_preds"] > self.stability_score_thresh
             keep_mask = data["stability_score"] >= self.stability_score_thresh
             data.filter(keep_mask)
-
+        
         # Threshold masks and calculate boxes
         data["masks"] = data["masks"] > self.predictor.model.mask_threshold
         data["boxes"] = batched_mask_to_box(data["masks"])

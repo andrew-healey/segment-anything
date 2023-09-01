@@ -81,12 +81,6 @@ class SamOnnxModel(nn.Module):
             align_corners=False,
         )
 
-        prepadded_size = self.resize_longest_image_size(orig_im_size, self.img_size).to(torch.int64)
-        masks = masks[..., : prepadded_size[0], : prepadded_size[1]]  # type: ignore
-
-        orig_im_size = orig_im_size.to(torch.int64)
-        h, w = orig_im_size[0], orig_im_size[1]
-        masks = F.interpolate(masks, size=(h, w), mode="bilinear", align_corners=False)
         return masks
 
     def select_masks(
@@ -117,7 +111,7 @@ class SamOnnxModel(nn.Module):
         sparse_embedding = self._embed_points(point_coords, point_labels)
         dense_embedding = self._embed_masks(mask_input, has_mask_input)
 
-        masks, scores = self.model.mask_decoder.predict_masks(
+        masks,scores, cls_masks,cls_scores = self.model.mask_decoder.predict_masks(
             image_embeddings=image_embeddings,
             image_pe=self.model.prompt_encoder.get_dense_pe(),
             sparse_prompt_embeddings=sparse_embedding,
@@ -133,6 +127,7 @@ class SamOnnxModel(nn.Module):
             masks, scores = self.select_masks(masks, scores, point_coords.shape[1])
 
         upscaled_masks = self.mask_postprocessing(masks, orig_im_size)
+        upscaled_cls_masks = self.mask_postprocessing(cls_masks, orig_im_size)
 
         if self.return_extra_metrics:
             stability_scores = calculate_stability_score(
@@ -141,4 +136,5 @@ class SamOnnxModel(nn.Module):
             areas = (upscaled_masks > self.model.mask_threshold).sum(-1).sum(-1)
             return upscaled_masks, scores, stability_scores, areas, masks
 
-        return upscaled_masks, scores, masks
+        return upscaled_masks, scores, masks, \
+            upscaled_cls_masks, cls_scores, cls_masks

@@ -31,7 +31,32 @@ class SamPredictor:
         self.transform = ResizeLongestSide(sam_model.image_encoder.img_size)
         self.reset_image()
         self.img = None
+    
+    def preprocess_image(self,
+                         image: np.ndarray,
+                         image_format: str = "RGB",
+                        )->torch.Tensor:
+        assert image_format in [
+            "RGB",
+            "BGR",
+        ], f"image_format must be in ['RGB', 'BGR'], is {image_format}."
+        if image_format != self.model.image_format:
+            image = image[..., ::-1]
 
+        # Transform the image to the form expected by the model
+        input_image = self.transform.apply_image(image)
+        input_image = torch.as_tensor(input_image, device=self.device)
+        input_image_torch = input_image_torch.permute(2, 0, 1).contiguous()[None, :, :, :]
+
+        original_image_size = image.shape[:2]
+
+        original_size = original_image_size
+        input_size = tuple(input_image_torch.shape[-2:])
+
+        return (image,input_image,input_image_torch), \
+              (original_size, input_size)
+
+    @torch.no_grad()
     def set_image(
         self,
         image: np.ndarray,
@@ -46,19 +71,21 @@ class SamPredictor:
             image in HWC uint8 format, with pixel values in [0, 255].
           image_format (str): The color format of the image, in ['RGB', 'BGR'].
         """
-        assert image_format in [
-            "RGB",
-            "BGR",
-        ], f"image_format must be in ['RGB', 'BGR'], is {image_format}."
-        if image_format != self.model.image_format:
-            image = image[..., ::-1]
+        (input_image,input_image_torch,input_image_resized), \
+              (original_size, input_size) = self.preprocess_image(image, image_format)
+        
+        self.reset_image()
 
-        # Transform the image to the form expected by the model
-        input_image = self.transform.apply_image(image)
-        input_image_torch = torch.as_tensor(input_image, device=self.device)
-        input_image_torch = input_image_torch.permute(2, 0, 1).contiguous()[None, :, :, :]
+        self.img = input_image
+        self.torch_img = input_image_torch
+        self.resized_img = input_image_resized
 
-        self.set_torch_image(input_image_torch, image.shape[:2])
+        self.original_size = original_size
+        self.input_size = input_size
+
+        input_image_final = self.model.preprocess(input_image_torch)
+        self.features = self.model.image_encoder(input_image_final)
+        self.is_image_set = True
     
     def preprocess_mask(self, mask: np.ndarray)->torch.Tensor:
         # Transform the mask to the form expected by the model
@@ -68,40 +95,6 @@ class SamPredictor:
 
         input_mask = self.model.preprocess(input_mask_torch)  # pad to 1024
         return input_mask
-
-    @torch.no_grad()
-    def set_torch_image(
-        self,
-        transformed_image: torch.Tensor,
-        original_image_size: Tuple[int, ...],
-    ) -> None:
-        """
-        Calculates the image embeddings for the provided image, allowing
-        masks to be predicted with the 'predict' method. Expects the input
-        image to be already transformed to the format expected by the model.
-
-        Arguments:
-          transformed_image (torch.Tensor): The input image, with shape
-            1x3xHxW, which has been transformed with ResizeLongestSide.
-          original_image_size (tuple(int, int)): The size of the image
-            before transformation, in (H, W) format.
-        """
-        assert (
-            len(transformed_image.shape) == 4
-            and transformed_image.shape[1] == 3
-            and max(*transformed_image.shape[2:]) == self.model.image_encoder.img_size
-        ), f"set_torch_image input must be BCHW with long side {self.model.image_encoder.img_size}."
-        self.reset_image()
-
-        self.img = transformed_image
-
-        self.original_size = original_image_size
-        self.input_size = tuple(transformed_image.shape[-2:])
-        input_image = self.model.preprocess(transformed_image)
-        self.features = self.model.image_encoder(input_image)
-        self.is_image_set = True
-
-        self.resized_img = input_image
 
     def predict(
         self,
@@ -262,25 +255,33 @@ class SamPredictor:
         )
 
         # Predict masks
-        low_res_masks, iou_predictions = self.model.mask_decoder(
+        low_res_masks, iou_predictions,cls_low_res_masks,cls_iou_predictions = self.model.mask_decoder(
             image_embeddings=self.features,
             image_pe=self.model.prompt_encoder.get_dense_pe(),
             sparse_prompt_embeddings=sparse_embeddings,
             dense_prompt_embeddings=dense_embeddings,
             multimask_output=multimask_output,
             attn_sim=attn_sim,
-            target_embedding=target_embedding
+            target_embedding=target_embedding,
+            context_embeddings=None,
         )
 
         # Upscale the masks to the original image resolution
         high_res_masks = self.model.postprocess_masks(low_res_masks, self.input_size, self.original_size)
-
         masks = high_res_masks > self.model.mask_threshold  # 0.0
 
-        if high_res:
-          return masks, iou_predictions, low_res_masks, high_res_masks
+        if cls_low_res_masks is not None:
+            # cls_tokens is enabled
+            cls_high_res_masks = self.model.postprocess_masks(cls_low_res_masks, self.input_size, self.original_size)
+            cls_masks = cls_high_res_masks > self.model.mask_threshold  # 0.0
         else:
-          return masks, iou_predictions, low_res_masks
+            cls_masks = None
+            cls_high_res_masks = None
+
+        if return_logits:
+          return high_res_masks, iou_predictions, low_res_masks, cls_high_res_masks, cls_iou_predictions, cls_low_res_masks
+        else:
+          return masks, iou_predictions, low_res_masks, cls_masks, cls_iou_predictions, cls_low_res_masks
 
     def get_image_embedding(self) -> torch.Tensor:
         """
