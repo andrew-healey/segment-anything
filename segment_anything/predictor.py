@@ -83,7 +83,7 @@ class SamPredictor:
         self.original_size = original_size
         self.input_size = input_size
 
-        input_image_final = self.model.preprocess(input_image_torch)
+        input_image_final = self.model.preprocess(input_image_resized)
         self.features = self.model.image_encoder(input_image_final)
         self.is_image_set = True
     
