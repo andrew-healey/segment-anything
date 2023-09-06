@@ -156,7 +156,6 @@ class MaskDecoder(nn.Module):
             to_cat.append(self.cls_iou_token.weight)
             to_cat.append(self.cls_mask_tokens.weight)
 
-            # print("cls_mask_token",self.cls_mask_tokens.weight.sum())
         output_tokens = torch.cat(to_cat, dim=0)
         output_tokens = output_tokens.unsqueeze(0).expand(sparse_prompt_embeddings.size(0), -1, -1)
         tokens = torch.cat((output_tokens, sparse_prompt_embeddings), dim=1)
