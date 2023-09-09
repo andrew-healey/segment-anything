@@ -75,8 +75,9 @@ class MaskDecoder(nn.Module):
             transformer_dim, iou_head_hidden_dim, self.num_mask_tokens, iou_head_depth
         )
 
-    def add_cls_token(self, num_classes: int, custom_hypers: bool = True):
+    def add_cls_token(self, num_classes: int, custom_hypers: bool = True, cls_token_only: bool = True):
         self.cls_token = True
+        self.cls_token_only = cls_token_only
         self.num_classes = num_classes
         self.cls_iou_token = nn.Embedding(1, self.transformer_dim)
         self.cls_mask_tokens = nn.Embedding(self.num_classes, self.transformer_dim)
@@ -100,7 +101,7 @@ class MaskDecoder(nn.Module):
         multimask_output: bool,
         context_embeddings: torch.Tensor=None,
         attn_sim=None,
-        target_embedding=None
+        target_embedding=None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Predict masks given image and prompt embeddings.
@@ -134,8 +135,10 @@ class MaskDecoder(nn.Module):
             mask_slice = slice(1, None)
         else:
             mask_slice = slice(0, 1)
-        masks = masks[:, mask_slice, :, :]
-        iou_pred = iou_pred[:, mask_slice]
+
+        if masks is not None:
+            masks = masks[:, mask_slice, :, :]
+            iou_pred = iou_pred[:, mask_slice]
 
         # Prepare output
         return masks, iou_pred, cls_masks, cls_iou_pred
@@ -176,15 +179,17 @@ class MaskDecoder(nn.Module):
             pos_src = pos_src.view(b, c, h, w).repeat(1, 1, n+1, 1).view(b, c, (n+1)*h, w)
 
         # Concatenate output tokens
-        all_tokens = {
-            "main":[self.iou_token.weight, self.mask_tokens.weight],
-        }
-        all_hyper_nets = {
-            "main":self.output_hypernetworks_mlps,
-        }
-        all_iou_head = {
-            "main":self.iou_prediction_head,
-        }
+        all_tokens = { }
+        all_hyper_nets = { }
+        all_iou_head = { }
+
+        use_normal_token = not (self.cls_token and self.cls_token_only and self.training)
+
+        if use_normal_token:
+            all_tokens["main"] = [self.iou_token.weight, self.mask_tokens.weight]
+            all_hyper_nets["main"] = self.output_hypernetworks_mlps
+            all_iou_head["main"] = self.iou_prediction_head
+
         if self.cls_token:
             all_tokens["cls"] = [self.cls_iou_token.weight, self.cls_mask_tokens.weight,self.iou_token.weight, self.mask_tokens.weight]
             all_hyper_nets["cls"] = self.cls_hypernetworks_mlps
@@ -228,7 +233,7 @@ class MaskDecoder(nn.Module):
 
             model_outputs[k] = (masks, iou_pred)
 
-        masks,iou_pred = model_outputs["main"]
+        masks,iou_pred = model_outputs["main"] if use_normal_token else (None,None)
         cls_masks,cls_iou_pred = model_outputs["cls"] if self.cls_token else (None,None)
 
         return masks,iou_pred, cls_masks,cls_iou_pred
