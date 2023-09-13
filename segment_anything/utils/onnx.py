@@ -28,6 +28,7 @@ class SamOnnxModel(nn.Module):
         return_single_mask: bool,
         use_stability_score: bool = False,
         return_extra_metrics: bool = False,
+        out_res: int = 512,
     ) -> None:
         super().__init__()
         self.mask_decoder = model.mask_decoder
@@ -37,6 +38,7 @@ class SamOnnxModel(nn.Module):
         self.use_stability_score = use_stability_score
         self.stability_score_offset = 1.0
         self.return_extra_metrics = return_extra_metrics
+        self.out_res = out_res
 
     @staticmethod
     def resize_longest_image_size(
@@ -76,7 +78,7 @@ class SamOnnxModel(nn.Module):
     def mask_postprocessing(self, masks: torch.Tensor, orig_im_size: torch.Tensor) -> torch.Tensor:
         masks = F.interpolate(
             masks,
-            size=(self.img_size, self.img_size),
+            size=(self.out_res, self.out_res),
             mode="bilinear",
             align_corners=False,
         )
