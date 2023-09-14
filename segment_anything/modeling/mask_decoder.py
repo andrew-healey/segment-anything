@@ -8,7 +8,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from typing import List, Tuple, Type
+from typing import List, Tuple, Type,Optional
 
 from .common import LayerNorm2d
 
@@ -151,7 +151,9 @@ class MaskDecoder(nn.Module):
         dense_prompt_embeddings: torch.Tensor,
         context_embeddings: torch.Tensor = None,
         attn_sim=None,
-        target_embedding=None
+        target_embedding=None,
+        use_cls_token:Optional[bool] = None,
+        use_normal_token:Optional[bool] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Predicts masks. See 'forward' for more details."""
 
@@ -183,14 +185,17 @@ class MaskDecoder(nn.Module):
         all_hyper_nets = { }
         all_iou_head = { }
 
-        use_normal_token = not (self.cls_token and self.cls_token_only and self.training)
+        if use_normal_token is None:
+            use_normal_token = not (self.cls_token and self.cls_token_only and self.training)
+        if use_cls_token is None:
+            use_cls_token = self.cls_token
 
         if use_normal_token:
             all_tokens["main"] = [self.iou_token.weight, self.mask_tokens.weight]
             all_hyper_nets["main"] = self.output_hypernetworks_mlps
             all_iou_head["main"] = self.iou_prediction_head
 
-        if self.cls_token:
+        if use_cls_token:
             all_tokens["cls"] = [self.cls_iou_token.weight, self.cls_mask_tokens.weight,self.iou_token.weight, self.mask_tokens.weight]
             all_hyper_nets["cls"] = self.cls_hypernetworks_mlps
             all_iou_head["cls"] = self.cls_iou_prediction_head

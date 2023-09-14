@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-from typing import Tuple
+from typing import Tuple, Optional
 
 from ..modeling import Sam
 from .amg import calculate_stability_score
@@ -29,6 +29,8 @@ class SamOnnxModel(nn.Module):
         use_stability_score: bool = False,
         return_extra_metrics: bool = False,
         out_res: int = 512,
+        use_cls_token:Optional[bool] = None,
+        use_normal_token:Optional[bool] = None,
     ) -> None:
         super().__init__()
         self.mask_decoder = model.mask_decoder
@@ -39,6 +41,9 @@ class SamOnnxModel(nn.Module):
         self.stability_score_offset = 1.0
         self.return_extra_metrics = return_extra_metrics
         self.out_res = out_res
+
+        self.use_cls_token = use_cls_token
+        self.use_normal_token = use_normal_token
 
     @staticmethod
     def resize_longest_image_size(
@@ -118,6 +123,8 @@ class SamOnnxModel(nn.Module):
             image_pe=self.model.prompt_encoder.get_dense_pe(),
             sparse_prompt_embeddings=sparse_embedding,
             dense_prompt_embeddings=dense_embedding,
+            use_cls_token=self.use_cls_token,
+            use_normal_token=self.use_normal_token,
         )
 
         if self.use_stability_score:
