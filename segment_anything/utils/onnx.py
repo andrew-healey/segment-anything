@@ -127,23 +127,22 @@ class SamOnnxModel(nn.Module):
             use_normal_token=self.use_normal_token,
         )
 
-        if self.use_stability_score:
-            scores = calculate_stability_score(
-                masks, self.model.mask_threshold, self.stability_score_offset
-            )
+        if self.use_normal_token:
+            if self.use_stability_score:
+                scores = calculate_stability_score(
+                    masks, self.model.mask_threshold, self.stability_score_offset
+                )
 
-        if self.return_single_mask:
-            masks, scores = self.select_masks(masks, scores, point_coords.shape[1])
+            if self.return_single_mask:
+                masks, scores = self.select_masks(masks, scores, point_coords.shape[1])
 
-        upscaled_masks = self.mask_postprocessing(masks, orig_im_size)
-        upscaled_cls_masks = self.mask_postprocessing(cls_masks, orig_im_size)
+            upscaled_masks = self.mask_postprocessing(masks, orig_im_size)
 
-        if self.return_extra_metrics:
-            stability_scores = calculate_stability_score(
-                upscaled_masks, self.model.mask_threshold, self.stability_score_offset
-            )
-            areas = (upscaled_masks > self.model.mask_threshold).sum(-1).sum(-1)
-            return upscaled_masks, scores, stability_scores, areas, masks
+            return upscaled_masks,scores,masks
 
-        return upscaled_masks, scores, masks, \
-            upscaled_cls_masks, cls_scores, cls_masks
+        if self.use_cls_token:
+            upscaled_cls_masks = self.mask_postprocessing(cls_masks, orig_im_size)
+
+            return upscaled_cls_masks,cls_scores,cls_masks
+
+        raise ValueError("Must use either cls token or normal token")
